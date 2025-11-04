@@ -4,12 +4,30 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
 )
+
+// parsePrivateKey
+//
+//	@Description: parse private key from PEM bytes
+//	@param privateKeyBytes
+//	@return *rsa.PrivateKey
+//	@return error
+func parsePrivateKey(privateKeyBytes []byte) (*rsa.PrivateKey, error) {
+	privateKeyBlock, rest := pem.Decode(privateKeyBytes)
+	if privateKeyBlock == nil {
+		return nil, errors.New("failed to decode private key")
+	}
+	if len(rest) > 0 {
+		return nil, errors.New("trailing data after PEM block")
+	}
+	return x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
+}
 
 // GetRSAKey
 //
@@ -46,24 +64,16 @@ func GetRSAKey(bits int) (string, string, error) {
 //	@return string
 //	@return error
 func GetRSASignature(privateKeyBytes, msg []byte, hashFunc crypto.Hash) (string, error) {
-	privateKeyBlock, _ := pem.Decode(privateKeyBytes)
-	if privateKeyBlock == nil {
-		return "", errors.New("failed to decode private key")
-	}
-	privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
+	privateKey, err := parsePrivateKey(privateKeyBytes)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse PKCS1 private key: %v", err)
+		return "", fmt.Errorf("failed to parse private key: %v", err)
 	}
 
 	hasher := hashFunc.New()
-	_, err = hasher.Write(msg)
-	if err != nil {
-		return "", fmt.Errorf("failed to hash message: %v", err)
-	}
-
+	hasher.Write(msg)
 	hashed := hasher.Sum(nil)
 
-	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, hashFunc, hashed)
+	signature, err := rsa.SignPSS(rand.Reader, privateKey, hashFunc, hashed, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign message: %v", err)
 	}
@@ -88,24 +98,66 @@ func GetDecryptMsg(privateKeyString, data string) ([]byte, error) {
 	return RSADecrypt(privateKeyBytes, dataBytes)
 }
 
+// RSAEncrypt
+//
+//	@Description: rsa encrypt with OAEP and SHA-256
+//	@param publicKeyBytes
+//	@param data
+//	@return []byte
+//	@return error
+func RSAEncrypt(publicKeyBytes, data []byte) ([]byte, error) {
+	publicKeyBlock, rest := pem.Decode(publicKeyBytes)
+	if publicKeyBlock == nil {
+		return nil, errors.New("failed to decode public key")
+	}
+	if len(rest) > 0 {
+		return nil, errors.New("trailing data after PEM block")
+	}
+
+	publicKey, err := x509.ParsePKIXPublicKey(publicKeyBlock.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse public key: %v", err)
+	}
+
+	rsaPublicKey, ok := publicKey.(*rsa.PublicKey)
+	if !ok {
+		return nil, errors.New("public key is not RSA key")
+	}
+
+	return rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaPublicKey, data, nil)
+}
+
+// GetEncryptMsg
+//
+//	@Description: get encrypt message
+//	@param publicKeyString
+//	@param data
+//	@return string
+//	@return error
+func GetEncryptMsg(publicKeyString string, data []byte) (string, error) {
+	publicKeyBytes := []byte(publicKeyString)
+	encrypted, err := RSAEncrypt(publicKeyBytes, data)
+	if err != nil {
+		return "", err
+	}
+
+	return base64.StdEncoding.EncodeToString(encrypted), nil
+}
+
 // RSADecrypt
 //
-//	@Description: rsa decrypt
+//	@Description: rsa decrypt with Optimal Asymmetric Encryption Padding
 //	@param privateKeyBytes
 //	@param data
 //	@return []byte
 //	@return error
 func RSADecrypt(privateKeyBytes, data []byte) ([]byte, error) {
-	privateKeyBlock, _ := pem.Decode(privateKeyBytes)
-	if privateKeyBlock == nil {
-		return nil, errors.New("failed to decode private key")
-	}
-	privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
+	privateKey, err := parsePrivateKey(privateKeyBytes)
 	if err != nil {
 		return nil, err
 	}
 
-	return rsa.DecryptPKCS1v15(rand.Reader, privateKey, data)
+	return rsa.DecryptOAEP(sha256.New(), rand.Reader, privateKey, data, nil)
 }
 
 // generatePEMBlock
