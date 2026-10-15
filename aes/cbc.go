@@ -1,8 +1,8 @@
-package shield
+package aes
 
 import (
 	"bytes"
-	"crypto/aes"
+	cryptoaes "crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/hex"
@@ -11,6 +11,9 @@ import (
 )
 
 // CBCEncryptString
+//
+// Deprecated: use EncryptString for authenticated encryption with AES-GCM.
+// Retained for compatibility with the legacy CBC hexadecimal format.
 //
 //	@Description: AES CBC Encryption
 //	@param key
@@ -26,6 +29,9 @@ func CBCEncryptString(key, data string) (string, error) {
 }
 
 // CBCDecryptString
+//
+// Deprecated: use DecryptString for AES-GCM ciphertext. Use this function only
+// for legacy CBC hexadecimal ciphertext; CBC does not authenticate data.
 //
 //	@Description: AES CBC Decryption
 //	@param key
@@ -46,16 +52,19 @@ func CBCDecryptString(key, data string) (string, error) {
 
 // CBCEncrypt
 //
+// Deprecated: use Encrypt for authenticated encryption with AES-GCM.
+// Retained for compatibility with the legacy IV-prefixed CBC format.
+//
 //	@Description: AES CBC Encryption
 //	@param key
 //	@param data
 //	@return []byte
 //	@return error
 func CBCEncrypt(key, data []byte) ([]byte, error) {
-	if len(key) != 16 && len(key) != 24 && len(key) != 32 {
+	if len(key) != KeySize128 && len(key) != KeySize192 && len(key) != KeySize256 {
 		return nil, errors.New("key length must be 16, 24, or 32 bytes")
 	}
-	block, err := aes.NewCipher(key)
+	block, err := cryptoaes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +73,7 @@ func CBCEncrypt(key, data []byte) ([]byte, error) {
 
 	// generate a random IV
 	var iv = make([]byte, blockSize)
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+	if _, err = io.ReadFull(rand.Reader, iv); err != nil {
 		return nil, err
 	}
 
@@ -82,16 +91,19 @@ func CBCEncrypt(key, data []byte) ([]byte, error) {
 
 // CBCDecrypt
 //
+// Deprecated: use Decrypt for AES-GCM ciphertext. Use this function only for
+// legacy CBC ciphertext; CBC does not authenticate data.
+//
 //	@Description: AES CBC Decryption
 //	@param key
 //	@param data
 //	@return []byte
 //	@return error
 func CBCDecrypt(key, data []byte) ([]byte, error) {
-	if len(key) != 16 && len(key) != 24 && len(key) != 32 {
+	if len(key) != KeySize128 && len(key) != KeySize192 && len(key) != KeySize256 {
 		return nil, errors.New("invalid length of key")
 	}
-	block, err := aes.NewCipher(key)
+	block, err := cryptoaes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
